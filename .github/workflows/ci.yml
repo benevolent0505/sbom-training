@@ -208,6 +208,9 @@ jobs:
           registry-password: ${{ secrets.GITHUB_TOKEN }}
           config: .syft.yaml
           dependency-snapshot: true
+          # 送信した内容は「ワークフロー名_ジョブ名_artifact-name」で識別され、同じ識別子の
+          # 送信は上書きされる。matrix の api と web が互いを上書きしないよう、名前を分ける
+          artifact-name: ${{ matrix.component }}.spdx.json
           upload-artifact: false
           upload-release-assets: false
 
