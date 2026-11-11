@@ -1,0 +1,14 @@
+---
+# aqua は標準レジストリ以外のパッケージを既定で拒否する。
+# aqua/registry.yaml の grype 定義を使うため、ここで明示的に許可する。
+# 各自の環境で一度 `aqua policy allow aqua-policy.yaml` を実行して承認する。
+registries:
+  - type: standard
+    ref: semver(">= 4.0.0")
+  - name: local
+    type: local
+    path: aqua/registry.yaml
+packages:
+  - registry: standard
+  - name: anchore/grype
+    registry: local

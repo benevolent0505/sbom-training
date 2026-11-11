@@ -1,0 +1,5 @@
+# cooldown(公開から 7 日)を待たずに採用するバージョンの一覧。
+# scripts/check-cooldown.sh が参照する。対象が 7 日を過ぎたら行を削除する。
+#
+# 書式: モジュール@バージョン  # 日付 担当: 理由
+# 例:   golang.org/x/net@v0.99.0  # 2026-11-11 alice: GHSA-xxxx-xxxx-xxxx の修正を取り込むため

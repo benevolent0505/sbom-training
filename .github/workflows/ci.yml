@@ -1,0 +1,259 @@
+# テスト → イメージビルド → SBOM 生成 → 脆弱性スキャン。
+#
+#   PR          イメージをランナー上でビルドし、SBOM を生成してスキャンする(push しない)
+#   main / タグ イメージを GHCR に push し、その digest から SBOM を生成して artifact に保存する
+#   タグ (v*)   加えて SBOM を GitHub Release に添付する
+#
+# Action はコミット SHA で固定し、Dependabot で更新する。
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test-api:
+    name: API のテスト
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: api/go.mod
+          cache-dependency-path: api/go.sum
+
+      - name: go vet
+        working-directory: api
+        run: go vet ./...
+
+      - name: go test
+        working-directory: api
+        run: go test ./...
+
+      - name: 生成コードが最新であることを確認
+        working-directory: api
+        run: |
+          go generate ./...
+          git diff --exit-code
+
+      # Dependabot の PR は Dependabot 側の cooldown 設定に従う。
+      # セキュリティ更新は cooldown を待たない方針なので、ここでは検査しない。
+      - name: Go モジュールの cooldown チェック
+        if: github.actor != 'dependabot[bot]'
+        run: ./scripts/check-cooldown.sh
+
+  test-web:
+    name: Web のテスト
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/package.json
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  # PR で追加・更新される依存に既知の脆弱性がないかを確認する。
+  # private リポジトリでは GitHub Code Security の契約が必要なため、public のときだけ実行する。
+  dependency-review:
+    name: 依存関係の差分レビュー
+    if: github.event_name == 'pull_request' && github.event.repository.visibility == 'public'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+
+  image:
+    name: イメージと SBOM (${{ matrix.component }})
+    needs: [test-api, test-web]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write # Dependency Graph への依存関係の送信
+      packages: write # GHCR への push
+      security-events: write # Code scanning への SARIF 送信(public のみ)
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [api, web]
+    env:
+      COMPONENT: ${{ matrix.component }}
+      SBOM_NAME: sbom-training-${{ matrix.component }}
+      PUBLISH: ${{ github.event_name != 'pull_request' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: イメージ名とバージョンを決定
+        id: vars
+        run: |
+          echo "image=ghcr.io/${GITHUB_REPOSITORY,,}/${COMPONENT}" >>"$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            echo "version=${GITHUB_REF_NAME}" >>"$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_SHA}" >>"$GITHUB_OUTPUT"
+          fi
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # ---- PR: ランナー上にビルドするだけ ----
+      - name: イメージをビルド(push しない)
+        if: env.PUBLISH != 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ matrix.component }}
+          load: true
+          tags: sbom-training/${{ matrix.component }}:ci
+          build-args: VERSION=${{ steps.vars.outputs.version }}
+          provenance: false
+          cache-from: type=gha,scope=${{ matrix.component }}
+
+      # ---- main / タグ: GHCR に push ----
+      - name: GHCR にログイン
+        if: env.PUBLISH == 'true'
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: イメージのタグとラベルを生成
+        if: env.PUBLISH == 'true'
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ steps.vars.outputs.image }}
+          tags: |
+            type=sha,format=long
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: イメージをビルドして push
+        if: env.PUBLISH == 'true'
+        id: push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ matrix.component }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: VERSION=${{ steps.vars.outputs.version }}
+          cache-from: type=gha,scope=${{ matrix.component }}
+          cache-to: type=gha,scope=${{ matrix.component }},mode=max
+
+      # ---- SBOM 生成 ----
+      - name: Syft をインストール
+        id: syft
+        uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+
+      - name: SBOM を生成(CycloneDX / SPDX)
+        env:
+          SYFT: ${{ steps.syft.outputs.cmd }}
+          IMAGE: ${{ steps.vars.outputs.image }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+          VERSION: ${{ steps.vars.outputs.version }}
+        run: |
+          # push 済みならレジストリ上の digest を、PR ではランナー上のイメージをスキャンする
+          if [[ -n "$DIGEST" ]]; then
+            source="registry:${IMAGE}@${DIGEST}"
+          else
+            source="docker:sbom-training/${COMPONENT}:ci"
+          fi
+          ./scripts/sbom-generate.sh "$source" "$SBOM_NAME" "$VERSION" sbom
+          # どのイメージの SBOM かを後からたどれるよう、digest を一緒に保存する
+          if [[ -n "$DIGEST" ]]; then
+            echo "${IMAGE}@${DIGEST}" >"sbom/${SBOM_NAME}.image.txt"
+          fi
+
+      # main の最新イメージに含まれるパッケージを Dependency Graph に登録する。
+      # 登録されたパッケージは Dependabot alerts の対象になる。
+      - name: Dependency Graph へ依存関係を送信
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          image: ${{ steps.vars.outputs.image }}@${{ steps.push.outputs.digest }}
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
+          config: .syft.yaml
+          dependency-snapshot: true
+          upload-artifact: false
+          upload-release-assets: false
+
+      # ---- 脆弱性スキャン(ゲート) ----
+      # push 後に実行するため、基準を超えたイメージも GHCR に残り、SBOM も artifact に保存される。
+      # このジョブの失敗をもって「デプロイしてはいけない」と判断する。
+      - name: Grype をインストール
+        id: grype
+        uses: anchore/scan-action/download-grype@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+
+      - name: SBOM を脆弱性スキャン
+        env:
+          GRYPE: ${{ steps.grype.outputs.cmd }}
+        run: ./scripts/sbom-scan.sh "sbom/${SBOM_NAME}.cdx.json"
+
+      - name: SBOM とスキャン結果を保存
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom-${{ matrix.component }}
+          path: sbom/
+          if-no-files-found: warn
+          # 定期再スキャンがこの artifact を参照するため、上限の 90 日まで保持する
+          retention-days: 90
+
+      # private リポジトリでは GitHub Code Security の契約が必要なため、public のときだけ送信する。
+      - name: スキャン結果を Code scanning に送信
+        if: ${{ !cancelled() && github.event.repository.visibility == 'public' && hashFiles('sbom/*.grype.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@9418214df1f2c4b8128c770156c409013b07d6b9 # v3.39.3
+        with:
+          sarif_file: sbom/${{ env.SBOM_NAME }}.grype.sarif
+          category: grype-${{ matrix.component }}
+
+  release:
+    name: SBOM を Release に添付
+    if: github.ref_type == 'tag'
+    needs: image
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: sbom-*
+          path: sbom
+          merge-multiple: true
+
+      - name: Release を作成して SBOM を添付
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes \
+            sbom/*.cdx.json sbom/*.spdx.json

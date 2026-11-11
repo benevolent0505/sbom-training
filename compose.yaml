@@ -1,0 +1,39 @@
+# ローカル実行用。ECS 上の構成(web → api → PostgreSQL)を手元で再現する。
+services:
+  db:
+    image: postgres:18-alpine@sha256:9ba53c7d41ea093baf5c1ba635ba5434c4f979880527d49bb7d9237d3193085b
+    environment:
+      POSTGRES_USER: blog
+      POSTGRES_PASSWORD: blog
+      POSTGRES_DB: blog
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U blog -d blog"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  api:
+    build:
+      context: ./api
+      args:
+        VERSION: ${VERSION:-dev}
+    image: sbom-training/api:local
+    environment:
+      DATABASE_URL: postgres://blog:blog@db:5432/blog?sslmode=disable
+      ENABLE_PLAYGROUND: "true"
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./web
+    image: sbom-training/web:local
+    environment:
+      API_URL: http://api:8080/query
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api

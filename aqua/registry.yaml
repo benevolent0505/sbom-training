@@ -1,0 +1,30 @@
+# aqua 標準レジストリ(v4.581.1 時点)の anchore/grype 定義は、旧形式の署名
+# (.pem / .sig)を参照しており、Sigstore bundle(.sigstore.json)のみを配布する
+# 現行リリースでは cosign 検証に失敗する。標準レジストリが更新されるまで、
+# anchore/syft と同じ bundle 方式の定義をここで上書きする。
+# 標準レジストリ側が修正されたら、このファイルと aqua.yaml の local レジストリを削除する。
+packages:
+  - type: github_release
+    repo_owner: anchore
+    repo_name: grype
+    description: A vulnerability scanner for container images and filesystems
+    asset: grype_{{trimV .Version}}_{{.OS}}_{{.Arch}}.{{.Format}}
+    format: tar.gz
+    checksum:
+      type: github_release
+      asset: grype_{{trimV .Version}}_checksums.txt
+      algorithm: sha256
+      cosign:
+        bundle:
+          type: github_release
+          asset: grype_{{trimV .Version}}_checksums.txt.sigstore.json
+        opts:
+          - --certificate-identity
+          - https://github.com/anchore/grype/.github/workflows/release.yaml@refs/heads/main
+          - --certificate-oidc-issuer
+          - https://token.actions.githubusercontent.com
+          - --certificate-github-workflow-repository
+          - anchore/grype
+    overrides:
+      - goos: windows
+        format: zip

@@ -1,0 +1,21 @@
+schema:
+  - graph/*.graphqls
+
+exec:
+  package: graph
+  layout: single-file
+  filename: graph/generated.go
+
+model:
+  filename: graph/model/models_gen.go
+  package: model
+
+resolver:
+  package: graph
+  layout: follow-schema
+  dir: graph
+  filename_template: "{name}.resolvers.go"
+
+# GraphQL の型は internal/blog のドメイン型へそのまま対応付ける
+autobind:
+  - github.com/benevolent0505/sbom-training/api/internal/blog

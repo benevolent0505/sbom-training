@@ -1,0 +1,17 @@
+---
+# ローカル開発で使う CLI のバージョン固定(https://aquaproj.github.io/)。
+# `aqua install` で導入できる。CI では各ツールの公式 Action を使う。
+# バージョンは公開から 7 日以上経過したものを選ぶ(docs/dependency-policy.md)。
+checksum:
+  enabled: true
+  require_checksum: true
+registries:
+  - type: standard
+    ref: v4.581.1
+  - name: local
+    type: local
+    path: aqua/registry.yaml
+packages:
+  - name: anchore/syft@v1.56.0
+  - name: anchore/grype@v0.121.1
+    registry: local
