@@ -76,7 +76,8 @@ jobs:
       - run: npm test
 
   # PR で追加・更新される依存に既知の脆弱性がないかを確認する。
-  # private リポジトリでは GitHub Code Security の契約が必要なため、public のときだけ実行する。
+  # private リポジトリでは GitHub Code Security の契約が必要なため、public のときだけ実行する
+  # (このリポジトリを private で複製した場合に失敗しないようにするための条件)。
   dependency-review:
     name: 依存関係の差分レビュー
     if: github.event_name == 'pull_request' && github.event.repository.visibility == 'public'
@@ -97,7 +98,7 @@ jobs:
     permissions:
       contents: write # Dependency Graph への依存関係の送信
       packages: write # GHCR への push
-      security-events: write # Code scanning への SARIF 送信(public のみ)
+      security-events: write # Code scanning への SARIF 送信(main / タグのみ)
     strategy:
       fail-fast: false
       matrix:
@@ -236,9 +237,10 @@ jobs:
           # 定期再スキャンがこの artifact を参照するため、上限の 90 日まで保持する
           retention-days: 90
 
+      # PR では送信しない。フォークや Dependabot からの PR はトークンが読み取り専用で、送信に失敗するため。
       # private リポジトリでは GitHub Code Security の契約が必要なため、public のときだけ送信する。
       - name: スキャン結果を Code scanning に送信
-        if: ${{ !cancelled() && github.event.repository.visibility == 'public' && hashFiles('sbom/*.grype.sarif') != '' }}
+        if: ${{ !cancelled() && env.PUBLISH == 'true' && github.event.repository.visibility == 'public' && hashFiles('sbom/*.grype.sarif') != '' }}
         uses: github/codeql-action/upload-sarif@9418214df1f2c4b8128c770156c409013b07d6b9 # v3.39.3
         with:
           sarif_file: sbom/${{ env.SBOM_NAME }}.grype.sarif
