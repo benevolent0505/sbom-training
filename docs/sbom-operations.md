@@ -18,7 +18,8 @@ SBOM は **コンテナイメージ** から生成します。ソースコード
 | --- | --- | --- |
 | ワークフローの artifact(`sbom-api` / `sbom-web`) | CycloneDX、SPDX、スキャン結果、対象イメージの digest(`*.image.txt`) | 各ビルドの記録。定期再スキャンの入力。90 日で削除される |
 | GitHub Release の添付ファイル | CycloneDX と SPDX | リリースごとの恒久的な記録、利用者への提供 |
-| Dependency Graph | パッケージ一覧 | Dependabot alerts による通知 |
+| Dependency Graph | パッケージ一覧 | Dependabot alerts による通知、Web UI での検索 |
+| Code scanning | main とタグのビルドのスキャン結果(SARIF) | Security タブでの脆弱性の一覧(public リポジトリのみ) |
 
 SBOM とイメージの対応は、artifact 内の `*.image.txt`(`ghcr.io/…/api@sha256:…`)と、イメージのタグ `sha-<コミット SHA>` でたどれます。
 
@@ -30,9 +31,12 @@ gh run download "$(gh run list --workflow ci.yml --branch main --event push --st
 
 ### attestation を使っていない理由
 
-SBOM をイメージの digest に署名付きで紐付ける方法(cosign の attestation)は採用していません。鍵を持たない keyless 署名では、private リポジトリであってもリポジトリ名・ワークフローのパス・コミット SHA などが Sigstore の公開ログに恒久的に記録されるためです。
+SBOM をイメージの digest に署名付きで紐付ける方法(cosign や GitHub の artifact attestation)は、構成を小さく保つために採用していません。SBOM の真正性は「このリポジトリの CI が保存した artifact / Release である」ことに依拠しています。
 
-その代わり、SBOM の真正性は「このリポジトリの CI が保存した artifact / Release である」ことに依拠しています。イメージを組織の外に配布し、受け取る側が SBOM を検証できる必要が出てきたら、鍵ペアによる署名か、リポジトリを public にしたうえでの keyless 署名を検討します。
+イメージを外部に配布し、受け取る側が SBOM を検証できる必要がある場合は、attestation の追加を検討します。その際は次の点に注意します。
+
+- 鍵を持たない keyless 署名では、リポジトリ名・ワークフローのパス・コミット SHA などが Sigstore の公開ログに恒久的に記録されます。private リポジトリでも同じなので、名前を外に出せないリポジトリでは鍵ペアによる署名を使います。
+- GitHub の artifact attestation は、public リポジトリでは無料で使えますが、private リポジトリでは上位プランが必要です。
 
 ## 脆弱性の基準
 

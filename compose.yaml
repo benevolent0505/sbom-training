@@ -2,6 +2,7 @@
 services:
   db:
     image: postgres:18-alpine@sha256:9ba53c7d41ea093baf5c1ba635ba5434c4f979880527d49bb7d9237d3193085b
+    # ローカル専用の固定の認証情報。ポートはホストに公開していない
     environment:
       POSTGRES_USER: blog
       POSTGRES_PASSWORD: blog

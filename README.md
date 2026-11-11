@@ -92,14 +92,22 @@ scripts/
 aqua.yaml             ローカル用 CLI のバージョン固定
 ```
 
-## GitHub 側の設定
+## 自分のリポジトリで試す場合の GitHub 側の設定
 
-リポジトリを作成したら、次を有効にします。
+このリポジトリをフォークまたは複製して動かす場合は、次を有効にします。
 
-- **Dependency graph** と **Dependabot alerts**(Settings → Advanced Security)
+- **Dependency graph** と **Dependabot alerts**、**Dependabot security updates**(Settings → Advanced Security)
 - Actions の **Workflow permissions** は既定(read)のままで構いません。必要な権限はワークフロー内で宣言しています
 
-private リポジトリでは、GitHub Code Security の契約が必要な次の 2 つを自動でスキップします。public にすると有効になります。
+次の 2 つは public リポジトリでのみ動作し、private では自動でスキップします(private で使うには GitHub Code Security の契約が必要です)。
 
 - スキャン結果の Code scanning への送信(SARIF)
 - PR での依存関係の差分レビュー(dependency-review-action)
+
+定期再スキャンはスケジュール実行です。public リポジトリでは、60 日間リポジトリに動きがないと GitHub がスケジュール実行を自動で無効にするため、その場合は Actions の画面から有効に戻します。
+
+CI が push するコンテナイメージ(`ghcr.io/benevolent0505/sbom-training/*`)は非公開です。イメージの中身は Release に添付した SBOM で確認できます。
+
+## ライセンス
+
+[MIT License](LICENSE)
