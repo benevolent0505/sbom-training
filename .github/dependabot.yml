@@ -25,6 +25,10 @@ updates:
     groups:
       npm-minor-patch:
         update-types: [minor, patch]
+    # Node.js のメジャーバージョンは LTS の切り替えに合わせて手動で上げる
+    ignore:
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   # Dockerfile のベースイメージ(タグと digest)
   - package-ecosystem: docker
@@ -35,6 +39,10 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7
+    # Node.js のメジャーバージョンは LTS の切り替えに合わせて手動で上げる
+    ignore:
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
 
   # compose.yaml のイメージ
   - package-ecosystem: docker-compose

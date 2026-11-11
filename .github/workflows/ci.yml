@@ -106,6 +106,8 @@ jobs:
       COMPONENT: ${{ matrix.component }}
       SBOM_NAME: sbom-training-${{ matrix.component }}
       PUBLISH: ${{ github.event_name != 'pull_request' }}
+      # build-push-action が既定でアップロードするビルド記録(*.dockerbuild)は使わない
+      DOCKER_BUILD_RECORD_UPLOAD: "false"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
