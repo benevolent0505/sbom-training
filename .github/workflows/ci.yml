@@ -152,6 +152,9 @@ jobs:
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ steps.vars.outputs.image }}
+          # latest は main の最新ビルドだけを指す。
+          # 既定(latest=auto)では semver タグのビルドでも latest が付け替わるため無効にする
+          flavor: latest=false
           tags: |
             type=sha,format=long
             type=semver,pattern={{version}}
