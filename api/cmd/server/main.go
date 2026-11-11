@@ -29,7 +29,7 @@ func main() {
 }
 
 func run() error {
-	// ECS はタスク停止時に SIGTERM を送るので、受け取ったら処理中のリクエストを待って終了する
+	// コンテナの停止時に送られる SIGTERM を受け取ったら、処理中のリクエストを待って終了する
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 

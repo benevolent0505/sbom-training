@@ -4,7 +4,7 @@ SBOM(Software Bill of Materials)による依存管理・脆弱性管理を、小
 
 - **api/** — Go の GraphQL API([gqlgen](https://gqlgen.com/)、PostgreSQL)
 - **web/** — Next.js(App Router)のフロントエンド
-- デプロイ先は ECS を想定していますが、このサンプルが扱うのは **テストとコンテナイメージのビルドまで** です
+- このサンプルが扱うのは **テストとコンテナイメージのビルドまで** で、デプロイは行いません
 
 ## SBOM の流れ
 
@@ -36,7 +36,7 @@ flowchart LR
 
 運用の詳細は次のドキュメントにあります。
 
-- [docs/sbom-operations.md](docs/sbom-operations.md) — SBOM の保存場所、脆弱性が見つかったときの対応、ECS との接続
+- [docs/sbom-operations.md](docs/sbom-operations.md) — SBOM の保存場所、脆弱性が見つかったときの対応
 - [docs/dependency-policy.md](docs/dependency-policy.md) — 依存バージョンの選定基準(cooldown)
 
 ## ローカルで試す
