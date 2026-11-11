@@ -1,16 +1,25 @@
-# main の最新ビルドの SBOM を、最新の脆弱性データベースで毎日スキャンし直す。
+# 保存してある SBOM を、最新の脆弱性データベースでスキャンし直す。
 #
 # ビルド時点で問題がなくても、脆弱性は後から見つかる。イメージを作り直さなくても、
 # 保存してある SBOM を再スキャンすれば「いま公開しているもの」への影響が分かる。
 #
 # 対象は、CI ワークフローが main で保存した SBOM(artifact)のうち最新のもの。
-# 基準(.grype.yaml)を超えたら Issue を起票する。
+# artifact が保持期限(90 日)切れで残っていない場合や、タグを指定した場合は、
+# Release に添付された SBOM を使う。基準(.grype.yaml)を超えたら Issue を起票する。
+#
+# このリポジトリは継続的に保守していないため、手動実行だけにしている。
+# 定期的に実行する場合は、下の schedule のコメントを外す。
 name: SBOM 再スキャン
 
 on:
-  schedule:
-    - cron: "17 21 * * *" # 毎日 06:17 JST
+  # schedule:
+  #   - cron: "17 21 * * *" # 毎日 06:17 JST
   workflow_dispatch:
+    inputs:
+      release:
+        description: "対象にする Release のタグ(例: v0.1.0)。空欄なら main の最新ビルド"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -39,26 +48,33 @@ jobs:
 
       # テストで失敗した実行はイメージも SBOM も作らないので、
       # SBOM の artifact を持つ実行が見つかるまで新しい順にさかのぼる。
-      - name: main の最新ビルドの SBOM を取得
+      - name: 対象の SBOM を取得
         id: sbom
+        env:
+          RELEASE_TAG: ${{ inputs.release }}
         run: |
-          runs=$(gh run list --workflow ci.yml --branch main --event push \
-            --status completed --limit 20 --json databaseId --jq '.[].databaseId')
-          for run_id in $runs; do
-            if gh run download "$run_id" --name "sbom-${COMPONENT}" --dir sbom 2>/dev/null; then
-              break
-            fi
-            rm -rf sbom
-          done
-
-          if [[ ! -f "sbom/${SBOM_NAME}.cdx.json" ]]; then
-            echo "::error::SBOM の artifact が見つかりません。保持期限(90 日)を過ぎた可能性があります。main で CI を再実行して SBOM を作り直してください。"
-            exit 1
+          target=""
+          if [[ -z "$RELEASE_TAG" ]]; then
+            runs=$(gh run list --workflow ci.yml --branch main --event push \
+              --status completed --limit 20 --json databaseId --jq '.[].databaseId')
+            for run_id in $runs; do
+              if gh run download "$run_id" --name "sbom-${COMPONENT}" --dir sbom 2>/dev/null; then
+                target="$(cat "sbom/${SBOM_NAME}.image.txt")(main の CI 実行 ${run_id})"
+                break
+              fi
+              rm -rf sbom
+            done
           fi
 
-          image=$(cat "sbom/${SBOM_NAME}.image.txt")
-          echo "image=${image}" >>"$GITHUB_OUTPUT"
-          echo "対象: ${image}(CI 実行 ${run_id})"
+          # タグの指定があるか、artifact が残っていなければ Release の SBOM を使う
+          if [[ -z "$target" ]]; then
+            tag="${RELEASE_TAG:-$(gh release view --json tagName --jq '.tagName')}"
+            gh release download "$tag" --pattern "${SBOM_NAME}.cdx.json" --dir sbom
+            target="Release ${tag} に添付された SBOM"
+          fi
+
+          echo "target=${target}" >>"$GITHUB_OUTPUT"
+          echo "対象: ${target}"
 
       - name: Grype をインストール
         id: grype
@@ -90,20 +106,20 @@ jobs:
       - name: Issue を起票・更新・クローズ
         env:
           STATUS: ${{ steps.scan.outputs.status }}
-          IMAGE_REF: ${{ steps.sbom.outputs.image }}
+          TARGET: ${{ steps.sbom.outputs.target }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           title="[SBOM 再スキャン] ${COMPONENT}: 基準を超える脆弱性があります"
           gh label create sbom-rescan --color B60205 \
-            --description "SBOM の定期再スキャンで検出された脆弱性" --force
+            --description "SBOM の再スキャンで検出された脆弱性" --force
           number=$(gh issue list --state open --label sbom-rescan --json number,title \
             --jq "map(select(.title == \"${title}\")) | .[0].number // empty")
 
           if [[ "$STATUS" == "2" ]]; then
             {
-              echo "main の最新ビルドの SBOM を再スキャンした結果、\`.grype.yaml\` の基準を超える脆弱性が見つかりました。"
+              echo "保存済みの SBOM を再スキャンした結果、\`.grype.yaml\` の基準を超える脆弱性が見つかりました。"
               echo
-              echo "- 対象イメージ: \`${IMAGE_REF}\`"
+              echo "- 対象: ${TARGET}"
               echo "- 実行結果: ${RUN_URL}"
               echo "- 最終確認: $(date -u +%Y-%m-%dT%H:%MZ)"
               echo

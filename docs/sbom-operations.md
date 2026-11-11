@@ -16,8 +16,8 @@ SBOM は **コンテナイメージ** から生成します。ソースコード
 
 | 場所 | 内容 | 用途 |
 | --- | --- | --- |
-| ワークフローの artifact(`sbom-api` / `sbom-web`) | CycloneDX、SPDX、スキャン結果、対象イメージの digest(`*.image.txt`) | 各ビルドの記録。定期再スキャンの入力。90 日で削除される |
-| GitHub Release の添付ファイル | CycloneDX と SPDX | リリースごとの恒久的な記録、利用者への提供 |
+| ワークフローの artifact(`sbom-api` / `sbom-web`) | CycloneDX、SPDX、スキャン結果、対象イメージの digest(`*.image.txt`) | 各ビルドの記録。再スキャンの入力。90 日で削除される |
+| GitHub Release の添付ファイル | CycloneDX と SPDX | リリースごとの恒久的な記録、利用者への提供。artifact が消えた後の再スキャンの入力 |
 | Dependency Graph | パッケージ一覧 | Dependabot alerts による通知、Web UI での検索 |
 | Code scanning | main とタグのビルドのスキャン結果(SARIF) | Security タブでの脆弱性の一覧(public リポジトリのみ) |
 
@@ -40,7 +40,7 @@ SBOM をイメージの digest に署名付きで紐付ける方法(cosign や G
 
 ## 脆弱性の基準
 
-基準は [.grype.yaml](../.grype.yaml) に書いてあり、ローカル・CI・定期再スキャンのすべてで同じものを使います。
+基準は [.grype.yaml](../.grype.yaml) に書いてあり、ローカル・CI・再スキャンのすべてで同じものを使います。
 
 - **High 以上で失敗**(`fail-on-severity: high`)
 - **修正版があるものだけが対象**(`only-fixed: true`)
@@ -52,12 +52,12 @@ SBOM をイメージの digest に署名付きで紐付ける方法(cosign や G
 検出される経路は 3 つあります。
 
 1. **PR の CI が失敗する** — その PR で入れた変更(依存の追加やベースイメージの更新)が原因
-2. **定期再スキャンが Issue を起票する** — ビルド後に公表された脆弱性(main の最新ビルドが対象)
+2. **再スキャンが Issue を起票する** — ビルド後に公表された脆弱性。再スキャンは [sbom-rescan.yml](../.github/workflows/sbom-rescan.yml) を手動または定期で実行する
 3. **Dependabot alerts が通知する** — 同上。修正版があればセキュリティ更新の PR も作られる
 
 対応は次の順で検討します。
 
-1. **更新する。** 修正版に上げる PR を作る(Dependabot のセキュリティ更新 PR があればそれを使う)。脆弱性修正は cooldown を待ちません([dependency-policy.md](dependency-policy.md))。main にマージされると新しいイメージと SBOM が作られ、翌日の再スキャンで Issue が自動的に閉じます。
+1. **更新する。** 修正版に上げる PR を作る(Dependabot のセキュリティ更新 PR があればそれを使う)。脆弱性修正は cooldown を待ちません([dependency-policy.md](dependency-policy.md))。main にマージされると新しいイメージと SBOM が作られ、次の再スキャンで Issue が自動的に閉じます。
 2. **影響がないと判断できる場合は除外する。** 該当機能を使っていないなど、根拠を確認したうえで `.grype.yaml` の `ignore` に、理由・判断者・見直し時期をコメントで添えて追記します。除外は PR でレビューします。
 3. **どちらもすぐにできない場合。** Issue に状況と期限を書き、緩和策(該当機能の無効化など)を検討します。基準そのものを緩めて通すことはしません。
 
@@ -68,7 +68,7 @@ SBOM をイメージの digest に署名付きで紐付ける方法(cosign や G
 | CI | [anchore/sbom-action](https://github.com/anchore/sbom-action) と [anchore/scan-action](https://github.com/anchore/scan-action) が同梱する既定の Syft / Grype。Action を Dependabot が更新すると追随する |
 | ローカル | [aqua.yaml](../aqua.yaml) で固定。手動で更新する |
 
-脆弱性データベースは実行のたびに最新が取得されるため、同じ SBOM でも日によって結果が変わります(これが定期再スキャンの意味です)。
+脆弱性データベースは実行のたびに最新が取得されるため、同じ SBOM でも日によって結果が変わります(これが再スキャンの意味です)。
 
 ## このサンプルで扱っていないこと
 

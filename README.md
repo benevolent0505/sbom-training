@@ -6,6 +6,9 @@ SBOM(Software Bill of Materials)による依存管理・脆弱性管理を、小
 - **web/** — Next.js(App Router)のフロントエンド
 - このサンプルが扱うのは **テストとコンテナイメージのビルドまで** で、デプロイは行いません
 
+> [!NOTE]
+> このリポジトリは作成時点のサンプルで、継続的なメンテナンスはしていません。依存は更新されないため、時間が経つと脆弱性のあるバージョンを含むようになります。そのため、定期実行(SBOM の再スキャン、Dependabot のバージョン更新)は止めてあり、外部からの Pull Request も受け付けていません。自分のリポジトリで試す場合の有効化の方法は[末尾](#自分のリポジトリで試す場合の-github-側の設定)にあります。
+
 ## SBOM の流れ
 
 ```mermaid
@@ -20,8 +23,8 @@ flowchart LR
     G --> I[Dependency Graph に送信]
     G --> J{Grype でスキャン}
   end
-  subgraph 毎日
-    K[main の最新ビルドの SBOM を取得] --> M{Grype で再スキャン}
+  subgraph 再スキャン
+    K[保存済みの SBOM を取得] --> M{Grype で再スキャン}
     M -- 基準超過 --> N[Issue を起票]
   end
 ```
@@ -31,8 +34,8 @@ flowchart LR
 | PR | イメージをビルドして SBOM を生成し、基準を超える脆弱性があれば失敗させる | [ci.yml](.github/workflows/ci.yml) |
 | main への push | イメージを GHCR に push し、その digest から SBOM を生成して artifact に保存する。パッケージ一覧を Dependency Graph に送る | [ci.yml](.github/workflows/ci.yml) |
 | `v*` タグ | 上に加えて、SBOM を GitHub Release に添付する | [ci.yml](.github/workflows/ci.yml) |
-| 毎日 | main の最新ビルドの SBOM を最新の脆弱性データベースで再スキャンし、基準を超えたら Issue を起票する | [sbom-rescan.yml](.github/workflows/sbom-rescan.yml) |
-| 毎週 | 依存の更新 PR を作る(公開から 7 日の cooldown 付き) | [dependabot.yml](.github/dependabot.yml) |
+| 再スキャン(手動。定期実行にもできる) | 保存済みの SBOM を最新の脆弱性データベースでスキャンし直し、基準を超えたら Issue を起票する | [sbom-rescan.yml](.github/workflows/sbom-rescan.yml) |
+| 依存の更新(このリポジトリでは停止中) | 依存の更新 PR を作る(公開から 7 日の cooldown 付き) | [dependabot.yml](.github/dependabot.yml) |
 
 運用の詳細は次のドキュメントにあります。
 
@@ -104,7 +107,20 @@ aqua.yaml             ローカル用 CLI のバージョン固定
 - スキャン結果の Code scanning への送信(SARIF)
 - PR での依存関係の差分レビュー(dependency-review-action)
 
-定期再スキャンはスケジュール実行です。public リポジトリでは、60 日間リポジトリに動きがないと GitHub がスケジュール実行を自動で無効にするため、その場合は Actions の画面から有効に戻します。
+このリポジトリで止めてある定期実行は、次のように有効にします。
+
+- **SBOM の再スキャン**: [sbom-rescan.yml](.github/workflows/sbom-rescan.yml) の `schedule` のコメントを外します。public リポジトリでは、60 日間リポジトリに動きがないと GitHub がスケジュール実行を自動で無効にするため、その場合は Actions の画面から有効に戻します。
+- **Dependabot のバージョン更新**: [dependabot.yml](.github/dependabot.yml) の `open-pull-requests-limit: 0` の行を削除します。
+
+再スキャンは手動でも実行できます。Release のタグを指定すると、そのリリースに添付された SBOM が対象になります。
+
+```bash
+gh workflow run sbom-rescan.yml
+```
+
+```bash
+gh workflow run sbom-rescan.yml -f release=v0.1.0
+```
 
 CI が push するコンテナイメージ(`ghcr.io/benevolent0505/sbom-training/*`)は非公開です。イメージの中身は Release に添付した SBOM で確認できます。
 
